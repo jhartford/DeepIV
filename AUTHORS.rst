@@ -11,5 +11,3 @@ Contributors
 ------------
 
 * Matt Taddy <taddy@microsoft.com>
-
-None yet. Why not be the first?
