@@ -14,6 +14,11 @@ requirements = [
     "theano"
 ]
 
+requirements = [
+    "keras",
+    "tensorflow"
+]
+
 test_requirements = [
     # TODO: put package test requirements here
 ]

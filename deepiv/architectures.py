@@ -2,9 +2,7 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 
 import keras
 import numpy as np
-from keras import backend as K
-from keras.datasets import mnist
-from keras.layers import (Activation, Convolution2D, Dense, Dropout, Flatten,
+from keras.layers import (Convolution2D, Dense, Dropout, Flatten,
                           MaxPooling2D)
 from keras.models import Sequential
 from keras.regularizers import l2
