@@ -23,20 +23,20 @@ def log_norm_pdf(x, mu, log_sig):
 
 def mix_gaussian_loss(x, mu, log_sig, w):
     '''
-    Combine the mixture of gaussian distribution and the loss into a single function 
+    Combine the mixture of gaussian distribution and the loss into a single function
     so that we can do the log sum exp trick for numerical stability...
     '''
     if K.backend() == "tensorflow":
         x.set_shape([None, 1])
-    gauss = log_norm_pdf(K.repeat_elements(x=x, rep=int(mu.shape[1]), axis=1), mu, log_sig)
-    # TODO: get rid of clipping. 
+    gauss = log_norm_pdf(K.repeat_elements(x=x, rep=mu.shape[1], axis=1), mu, log_sig)
+    # TODO: get rid of clipping.
     gauss = K.clip(gauss, -40, 40)
-    m = K.maximum((0.), K.max(gauss))
+    max_gauss = K.maximum((0.), K.max(gauss))
     # log sum exp trick...
-    gauss = gauss - m
+    gauss = gauss - max_gauss
     out = K.sum(w * K.exp(gauss), axis=1)
-    p = K.mean(-K.log(out) + m)
-    return p
+    loss = K.mean(-K.log(out) + max_gauss)
+    return loss
 
 def mixture_of_gaussian_output(x, n_components):
     mu = keras.layers.Dense(n_components, activation='linear')(x)
@@ -52,10 +52,10 @@ def mixture_gaussian(n_components):
     '''
     Build a mixture of gaussian output and loss function that may be used in a keras graph.
     '''
-    
+
     def output(x):
         return mixture_of_gaussian_output(x, n_components)
-    
+
     def keras_loss(y, x):
-        return mixture_of_gaussian_loss(y,x,n_components)
+        return mixture_of_gaussian_loss(y, x, n_components)
     return output, keras_loss
