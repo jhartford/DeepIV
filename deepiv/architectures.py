@@ -50,11 +50,11 @@ def convnet(input, output, dropout_rate=0., input_shape=(1, 28, 28), batch_size=
     '''
     const = maxnorm(2) if constrain_norm else None
 
-    state = Convolution2D(nb_filters, kernel_size[0], kernel_size[1], border_mode='valid',
+    state = Convolution2D(nb_filters, kernel_size, padding='valid',
                           input_shape=input_shape, activation=activations,
                           kernel_regularizer=l2(l2_rate), kernel_constraint=const)(input)
 
-    state = Convolution2D(nb_filters, kernel_size[0], kernel_size[1],
+    state = Convolution2D(nb_filters, kernel_size,
                           activation=activations, kernel_regularizer=l2(l2_rate),
                           kernel_constraint=const)(state)
 
@@ -64,7 +64,7 @@ def convnet(input, output, dropout_rate=0., input_shape=(1, 28, 28), batch_size=
 
     if dropout_rate > 0.:
         state = Dropout(dropout_rate)(state)
-    state = Dense(128, activation=activations, W_regularizer=l2(l2_rate), W_constraint=const)(state)
+    state = Dense(128, activation=activations, kernel_regularizer=l2(l2_rate), kernel_constraint=const)(state)
 
     if dropout_rate > 0.:
         state = Dropout(dropout_rate)(state)

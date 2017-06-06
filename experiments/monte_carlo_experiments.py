@@ -63,6 +63,8 @@ def cause_net_keras_simple(x,z,t,y, epocs=1000,dropout_rate=0.5, l2=0.001, resp_
                         dropout_rate=dropout_rate,
                         activations='tanh')
     model_treatment = keras.models.Model(input=inp, output=out)
+    print(model_treatment.summary())
+    exit()
     data_input = [x,z]
 
     model_treatment.compile(optimizer=opt, loss=mix_gaussian_loss)

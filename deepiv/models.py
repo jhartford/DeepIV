@@ -23,7 +23,7 @@ class Treatment(Model):
 
     def _get_sampler_by_string(self, loss):
         output = self.outputs[0]
-        inputs = [l.input for l in self.layers if isinstance(l, InputLayer)]
+        inputs = self.inputs
         print("Sampler inputs:",inputs)
 
         if loss in ["MSE", "mse", "mean_squared_error"]:
@@ -95,7 +95,6 @@ class Treatment(Model):
                 raise Exception("When using mixture of gaussian loss you must\
                                  supply n_components argument")
             self.n_components = n_components
-            # self.outputs[0] = densities.mixture_of_gaussian_output(self.outputs[0], n_components)
             self._prepare_sampler(loss)
             loss = lambda y_true, y_pred: densities.mixture_of_gaussian_loss(y_true,
                                                                              y_pred,
@@ -155,7 +154,6 @@ class Response(Model):
             '''
             Data generator that samples from the treatment network during training
             '''
-            print("Starting generator")
             n_train = outputs.shape[0]
             rng = numpy.random.RandomState(seed)
             batch_size = min(batch_size, n_train)
@@ -168,7 +166,8 @@ class Response(Model):
                 for i in range(n_batches):
                     instruments = [inputs[0][i*batch_size:(i+1)*batch_size, :]]
                     features = [inp[i*batch_size:(i+1)*batch_size, :] for inp in inputs[1:]]
-                    sampled_t = self.treatment.sample(instruments + features, n_samples)
+                    sampler_input = instruments + features
+                    sampled_t = self.treatment.sample(sampler_input, n_samples)
                     response_inp = [inp.repeat(n_samples, axis=0) for inp in features] + [sampled_t]
                     y_train = outputs[i*batch_size:(i+1)*batch_size, :].repeat(n_samples, axis=0)
                     yield response_inp, y_train
@@ -190,7 +189,6 @@ class Response(Model):
             seed = numpy.random.randint(0, 1e6)
         generator = self._prepare_generator(samples_per_batch, seed)
         steps_per_epoch = y.shape[0]  // batch_size
-        print('Steps per epoch: {}'.format(steps_per_epoch))
         super(Response, self).fit_generator(generator=generator(x, y, batch_size), steps_per_epoch=steps_per_epoch,
                                             epochs=epochs, verbose=verbose,
                                             callbacks=callbacks, validation_data=validation_data,
