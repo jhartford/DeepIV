@@ -4,18 +4,19 @@ import time
 
 import data_generator
 
-#from rpy2.robjects.packages import importr
-#import rpy2.robjects as robjects
+from rpy2.robjects.packages import importr
+import rpy2.robjects as robjects
 from threading import Thread
-#R = robjects.r
-#import rpy2.robjects.numpy2ri
-#rpy2.robjects.numpy2ri.activate()
+R = robjects.r
+import rpy2.robjects.numpy2ri
+rpy2.robjects.numpy2ri.activate()
 
 import numpy as np
 
 parser = argparse.ArgumentParser(description='Description of your program')
 parser.add_argument('-n','--n_samples', help='Number of training samples', default=1000, type=int)
 parser.add_argument('-s','--seed', help='Random seed', default=1, type=int)
+parser.add_argument('--endo', help='Endogeneity', default=0.5, type=float)
 parser.add_argument('--heartbeat', help='Use philly heartbeat', action='store_true')
 parser.add_argument('--results', help='Results file', default='nonpar_iv.csv')
 args = parser.parse_args()
@@ -97,7 +98,7 @@ def prepare_file(filename):
             f.write('n,seed,mse\n')
 
 
-df = lambda n, s, test: data_generator.demand(n, s, test=test)
+df = lambda n, s, test: data_generator.demand(n, s, ypcor=args.endo, test=test)
 x,z,t,y,g = df(args.n_samples, args.seed, False)
 mse = fit_and_evaluate(x,z,t,y,df)
 DONE = True # turn off the heartbeat
