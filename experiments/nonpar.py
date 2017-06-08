@@ -4,18 +4,19 @@ import time
 
 import data_generator
 
-#from rpy2.robjects.packages import importr
-#import rpy2.robjects as robjects
+from rpy2.robjects.packages import importr
+import rpy2.robjects as robjects
 from threading import Thread
-#R = robjects.r
-#import rpy2.robjects.numpy2ri
-#rpy2.robjects.numpy2ri.activate()
+R = robjects.r
+import rpy2.robjects.numpy2ri
+rpy2.robjects.numpy2ri.activate()
 
 import numpy as np
 
 parser = argparse.ArgumentParser(description='Description of your program')
 parser.add_argument('-n','--n_samples', help='Number of training samples', default=1000, type=int)
 parser.add_argument('-s','--seed', help='Random seed', default=1, type=int)
+parser.add_argument('--endo', help='Endogeneity', default=0.5, type=float)
 parser.add_argument('--heartbeat', help='Use philly heartbeat', action='store_true')
 parser.add_argument('--results', help='Results file', default='nonpar_iv.csv')
 args = parser.parse_args()
@@ -94,15 +95,15 @@ def fit_and_evaluate(x,z,t,y,df):
 def prepare_file(filename):
     if not os.path.exists(filename):
         with open(filename, 'w') as f:
-            f.write('n,seed,mse\n')
+            f.write('n,seed,endo,mse\n')
 
 
-df = lambda n, s, test: data_generator.demand(n, s, test=test)
+df = lambda n, s, test: data_generator.demand(n, s, ypcor=args.endo, test=test)
 x,z,t,y,g = df(args.n_samples, args.seed, False)
 mse = fit_and_evaluate(x,z,t,y,df)
 DONE = True # turn off the heartbeat
 
 prepare_file(args.results)
 with open(args.results, 'a') as f:
-    f.write('%d,%d,%f\n' % (args.n_samples, args.seed, mse))
+    f.write('%d,%d,%f,%f\n' % (args.n_samples, args.seed, args.endo, mse))
 
