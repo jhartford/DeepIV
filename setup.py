@@ -15,6 +15,10 @@ requirements = [
     "sklearn"
 ]
 
+optimal_packages = {
+    "nonpar": ["rpy2"]
+}
+
 test_requirements = [
     # TODO: put package test requirements here
 ]
@@ -34,6 +38,7 @@ setup(
                  'deepiv'},
     include_package_data=True,
     install_requires=requirements,
+    extras_require=optimal_packages,
     license="MIT license",
     zip_safe=False,
     keywords='deepiv',
