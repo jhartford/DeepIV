@@ -18,17 +18,26 @@ DeepIV
      :alt: Updates
 
 
-A package for counter factual prediction using deep instrument variable methods
+A package for counter factual prediction using deep instrument variable methods that builds on Keras.
 
 
 * Free software: MIT license
 * Documentation: https://deepiv.readthedocs.io.
 
 
-Features
+Installation
 --------
+To use DeepIV, you can simply naviage to to the DeepIV directory on your machine and run:
 
-* TODO
+        pip install .
+
+You can then use the package by simply running: import deepiv in python. See the examples directory for example usage.
+
+The package is currently under active development, so you may want to install it using the following command:
+
+        pip install -e .
+
+By doing this, every time you git pull an update, it will be reflected in your installation.
 
 Credits
 ---------
