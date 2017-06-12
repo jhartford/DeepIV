@@ -22,6 +22,7 @@ A package for counter factual prediction using deep instrument variable methods 
 
 If you use this package in your research, please cite it as:
 
+``
 @inproceedings{Hartford17,
   author    = {Jason Hartford and
                Greg Lewis and
@@ -33,7 +34,7 @@ If you use this package in your research, please cite it as:
   pages     = {1--9},
   year      = {2017}
 }
-
+``
 
 * Free software: MIT license
 * Documentation: https://deepiv.readthedocs.io.
