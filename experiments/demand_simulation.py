@@ -16,8 +16,7 @@ import data_generator
 
 n = 5000
 dropout_rate = min(1000./(1000. + n), 0.5)
-epochs = 1500
-# epochs = int(1500000./float(n))
+epochs = int(1500000./float(n)) # heuristic to select number of epochs
 batch_size = 100
 
 x, z, t, y, g_true = data_generator.demand(n=n, seed=1, ypcor=0.5, use_images=False, test=False)
