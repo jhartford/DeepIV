@@ -20,21 +20,20 @@ DeepIV
 
 A package for counter factual prediction using deep instrument variable methods that builds on Keras. 
 
-If you use this package in your research, please cite it as:
+If you use this package in your research, please cite it as::
 
-''
-@inproceedings{Hartford17,
-  author    = {Jason Hartford and
-               Greg Lewis and
-               Kevin Leyton-Brown and
-               Matt Taddy},
-  title     = {Deep IV: A Flexible Approach for Counterfactual Prediction},
-  booktitle = {Proceedings of the 34th International Conference on Machine Learning,
-               {ICML} 2017, Sydney, Australia, 6-11 August 2017},
-  pages     = {1--9},
-  year      = {2017}
-}
-''
+        @inproceedings{Hartford17,
+        author    = {Jason Hartford and
+                Greg Lewis and
+                Kevin Leyton-Brown and
+                Matt Taddy},
+        title     = {Deep IV: A Flexible Approach for Counterfactual Prediction},
+        booktitle = {Proceedings of the 34th International Conference on Machine Learning,
+                {ICML} 2017, Sydney, Australia, 6-11 August 2017},
+        pages     = {1--9},
+        year      = {2017}
+        }
+
 
 * Free software: MIT license
 * Documentation: https://deepiv.readthedocs.io.
@@ -64,13 +63,13 @@ The DeepIV procedure consists of two stages:
 
 Example usage is shown in the experiments directory. 
 
-`demand_simulation.py` gives a simple example using a feedforward network for both the treatment and the response models.
+``demand_simulation.py`` gives a simple example using a feedforward network for both the treatment and the response models.
 
-`demand_simulation_mnist.py` is a little more complicated: it uses a convolutation network to fit an image embedding and then concatinates the embedding with other features to fit the network. 
+``demand_simulation_mnist.py`` is a little more complicated: it uses a convolutation network to fit an image embedding and then concatinates the embedding with other features to fit the network. 
 
 Both those examples use simulated data where ground truth is known, so they can report the causal mean squared error. On real data this isn't possible, so we advise that you use a holdout set to tune hyperparameters of the network (or cross validation in the case of small networks). You can choose hyperparameters based on the losses returned at each stage (see the paper for details on why this works).
 
-DeepIV should be compatable with all Keras layers, so the 'Keras documentation'_https://keras.io is a good place to learn about designing network architectures. Feel free to file a bug report if something doesn't work.
+DeepIV should be compatable with all Keras layers, so the 'Keras documentation<https://keras.io>'__ is a good place to learn about designing network architectures. Feel free to file a bug report if something doesn't work.
 
 
 Credits
