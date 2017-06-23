@@ -204,4 +204,13 @@ class Response(Model):
         '''
         raise NotImplementedError("We use override fit_generator to support sampling from the\
                                    treatment model during training.")
-        
+
+    def get_represetation(self, x):
+        # This predict phi(x,t). TODO: predict E_z[phi(x, t| z)]
+        if not hasattr(self, "_representation"):
+            intermediate_layer_model = Model(inputs=self.inputs,
+                                             outputs=self.layers[-2].output)
+            self._representation = intermediate_layer_model.predict
+            return self._representation(x)
+        else:
+            return self._representation(x)
