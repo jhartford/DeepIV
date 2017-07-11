@@ -6,9 +6,13 @@ import warnings
 import deepiv.samplers as samplers
 import deepiv.densities as densities
 
+from deepiv.custom_gradients import replace_gradients_mse
+
 from keras.models import Model
 from keras import backend as K
 from keras.layers import Lambda, InputLayer
+
+import keras.utils
 
 import numpy
 
@@ -128,6 +132,45 @@ class Treatment(Model):
         else:
             raise Exception("Compile model with loss before sampling")
 
+class SampledSequence(keras.utils.Sequence):
+    def __init__(self, features, instruments, outputs, batch_size, sampler, n_samples=1, seed=None):
+        self.rng = numpy.random.RandomState(seed)
+        if not isinstance(features, list):
+            features = [features.copy()]
+        else:
+            features = [f.copy() for f in features]
+        self.features = features
+        self.instruments = instruments.copy()
+        self.outputs = outputs.copy()
+        self.batch_size = batch_size
+        self.sampler = sampler
+        self.n_samples = n_samples
+        self.current_index = 0
+        self.shuffle()
+
+    def __len__(self):
+        if isinstance(self.outputs, list):
+            return self.outputs[0].shape[0] // self.batch_size
+        else:
+            return self.outputs.shape[0] // self.batch_size
+
+    def shuffle(self):
+        idx = self.rng.permutation(numpy.arange(self.instruments.shape[0]))
+        self.instruments = self.instruments[idx,:]
+        self.outputs = self.outputs[idx,:]
+        self.features = [f[idx,:] for f in self.features]
+    
+    def __getitem__(self,idx):
+        instruments = [self.instruments[idx*self.batch_size:(idx+1)*self.batch_size, :]]
+        features = [inp[idx*self.batch_size:(idx+1)*self.batch_size, :] for inp in self.features]
+        sampler_input = instruments + features
+        samples = self.sampler(sampler_input, self.n_samples)
+        batch_features = [f[idx*self.batch_size:(idx+1)*self.batch_size].repeat(self.n_samples, axis=0) for f in self.features] + [samples]
+        batch_y = self.outputs[idx*self.batch_size:(idx+1)*self.batch_size].repeat(self.n_samples, axis=0)
+        if idx == (len(self) - 1):
+            self.shuffle()
+        return batch_features, batch_y
+
 class Response(Model):
     '''
     Extends the Keras Model class to support sampling from the Treatment
@@ -178,6 +221,20 @@ class Response(Model):
                 
         return data_generator
 
+    def compile(self, optimizer, loss, metrics=None, loss_weights=None, sample_weight_mode=None,
+                unbiased_gradient=False,n_samples=1, batch_size=None):
+        super(Response, self).compile(optimizer=optimizer, loss=loss, loss_weights=loss_weights,
+                                      sample_weight_mode=sample_weight_mode)
+        if unbiased_gradient:
+            if loss in ["MSE", "mse", "mean_squared_error"]:
+                if batch_size is None:
+                    raise ValueError("Must supply a batch_size argument if using unbiased gradients. Currently batch_size is None.")
+                replace_gradients_mse(self, optimizer, n_samples, batch_size)
+            else:
+                warnings.warn("Unbiased gradient only implemented for mean square error loss. It is unnecessary for\
+                              logistic losses and currently not implemented for absolute error losses.")
+            
+
     def fit(self, x=None, y=None, batch_size=512, epochs=1, verbose=1, callbacks=None,
             validation_data=None, class_weight=None, initial_epoch=0, samples_per_batch=2,
             seed=None):
@@ -192,6 +249,7 @@ class Response(Model):
         if seed is None:
             seed = numpy.random.randint(0, 1e6)
         generator = self._prepare_generator(samples_per_batch, seed)
+        #generator = SampledSequence(x[1:], x[0], y, batch_size, self.treatment.sample, 2)
         steps_per_epoch = y.shape[0]  // batch_size
         super(Response, self).fit_generator(generator=generator(x, y, batch_size),
                                             steps_per_epoch=steps_per_epoch,
@@ -221,7 +279,7 @@ class Response(Model):
             
 
             intermediate_layer_model = Model(inputs=self.inputs,
-                                             outputs=[l.output for l in self.layers[-2].output)
+                                             outputs=self.layers[-2].output)
 
             def pred(inputs, n_samples = 100, seed=None):
                 gen = self._prepare_generator(n_samples, seed)
