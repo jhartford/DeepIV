@@ -150,27 +150,31 @@ class Response(Model):
         super(Response, self).__init__(**kwargs)
 
     def _prepare_generator(self, n_samples=2, seed=123):
-        def data_generator(inputs, outputs, batch_size):
+        def data_generator(inputs, outputs=None, batch_size=100, dropout_sampling=False):
             '''
             Data generator that samples from the treatment network during training
             '''
-            n_train = outputs.shape[0]
+            n_train = inputs[0].shape[0]
             rng = numpy.random.RandomState(seed)
             batch_size = min(batch_size, n_train)
             idx = numpy.arange(n_train)
             while 1:
                 idx = rng.permutation(idx)
                 inputs = [inp[idx, :] for inp in inputs] #shuffle examples
-                outputs = outputs[idx, :]
+                if outputs is not None: 
+                    outputs = outputs[idx, :]
                 n_batches = n_train//batch_size
                 for i in range(n_batches):
                     instruments = [inputs[0][i*batch_size:(i+1)*batch_size, :]]
                     features = [inp[i*batch_size:(i+1)*batch_size, :] for inp in inputs[1:]]
                     sampler_input = instruments + features
-                    sampled_t = self.treatment.sample(sampler_input, n_samples)
+                    sampled_t = self.treatment.sample(sampler_input, n_samples, use_dropout=dropout_sampling)
                     response_inp = [inp.repeat(n_samples, axis=0) for inp in features] + [sampled_t]
-                    y_train = outputs[i*batch_size:(i+1)*batch_size, :].repeat(n_samples, axis=0)
-                    yield response_inp, y_train
+                    if outputs is not None:
+                        y_train = outputs[i*batch_size:(i+1)*batch_size, :].repeat(n_samples, axis=0)
+                        yield response_inp, y_train
+                    else:
+                        yield response_inp
                 
         return data_generator
 
@@ -189,7 +193,8 @@ class Response(Model):
             seed = numpy.random.randint(0, 1e6)
         generator = self._prepare_generator(samples_per_batch, seed)
         steps_per_epoch = y.shape[0]  // batch_size
-        super(Response, self).fit_generator(generator=generator(x, y, batch_size), steps_per_epoch=steps_per_epoch,
+        super(Response, self).fit_generator(generator=generator(x, y, batch_size),
+                                            steps_per_epoch=steps_per_epoch,
                                             epochs=epochs, verbose=verbose,
                                             callbacks=callbacks, validation_data=validation_data,
                                             class_weight=class_weight, initial_epoch=initial_epoch)
@@ -205,12 +210,73 @@ class Response(Model):
         raise NotImplementedError("We use override fit_generator to support sampling from the\
                                    treatment model during training.")
 
-    def get_represetation(self, x):
-        # This predict phi(x,t). TODO: predict E_z[phi(x, t| z)]
-        if not hasattr(self, "_representation"):
+    def expected_representation(self, x, z, n_samples=100, batch_size=None, seed=None):
+        inputs = [z, x]
+        if not hasattr(self, "_E_representation"):
+            if batch_size is None:
+                batch_size = inputs[0].shape[0]
+                steps = 1
+            else:
+                steps = inputs[0].shape[0] // batch_size
+            
+
+            intermediate_layer_model = Model(inputs=self.inputs,
+                                             outputs=[l.output for l in self.layers[-2].output)
+
+            def pred(inputs, n_samples = 100, seed=None):
+                gen = self._prepare_generator(n_samples, seed)
+                representation = intermediate_layer_model.predict_generator(generator=gen(inputs,
+                                                    batch_size=batch_size),
+                                                    steps=steps)
+                return representation.reshape((inputs[0].shape[0], n_samples, -1))
+            self._E_representation = pred
+            return self._E_representation(inputs, n_samples, seed)
+        else:
+            return self._E_representation(inputs, n_samples, seed)
+
+    def conditional_representation(self, x, t):
+        inputs = [x, t]
+        if not hasattr(self, "_c_representation"):          
             intermediate_layer_model = Model(inputs=self.inputs,
                                              outputs=self.layers[-2].output)
-            self._representation = intermediate_layer_model.predict
-            return self._representation(x)
+
+            self._c_representation = intermediate_layer_model.predict
+            return self._c_representation(inputs)
         else:
-            return self._representation(x)
+            return self._c_representation(inputs)
+
+    def dropout_predict(self, x, z, n_samples=100):
+        if isinstance(x, list):
+            inputs = [z] + x
+        else:
+            inputs = [z, x]
+        if not hasattr(self, "_dropout_predict"):
+            
+            predict_with_dropout = K.function(self.inputs + [K.learning_phase()],
+                                              [self.layers[-1].output])
+
+            def pred(inputs, n_samples = 100):
+                # draw samples from the treatment network with dropout turned on
+                samples = self.treatment.sample(inputs, n_samples, use_dropout=True)
+                # prepare inputs for the response network
+                rep_inputs = [i.repeat(n_samples, axis=0) for i in inputs[1:]] + [samples]
+                # return outputs from the response network with dropout turned on (learning_phase=0)
+                return predict_with_dropout(rep_inputs + [1])[0]
+            self._dropout_predict = pred
+            return self._dropout_predict(inputs, n_samples)
+        else:
+            return self._dropout_predict(inputs, n_samples)
+
+    def credible_interval(self, x, z, n_samples=100, p=0.95):
+        '''
+        Return a credible interval of size p using dropout variational inference.
+        '''
+        if isinstance(x, list):
+            n = x[0].shape[0]
+        else:
+            n = x.shape[0]
+        alpha = (1-p) / 2.
+        samples = self.dropout_predict(x, z, n_samples).reshape((n, n_samples, -1))
+        upper = numpy.percentile(samples.copy(), 100*(p+alpha), axis=1)
+        lower = numpy.percentile(samples.copy(), 100*(alpha), axis=1)
+        return lower, upper
