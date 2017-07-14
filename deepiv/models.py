@@ -15,6 +15,7 @@ from keras.layers import Lambda, InputLayer
 import keras.utils
 
 import numpy
+from sklearn import linear_model
 
 
 class Treatment(Model):
@@ -127,49 +128,10 @@ class Treatment(Model):
         if hasattr(self, "sampler"):
             if not isinstance(inputs, list):
                 inputs = [inputs]
-            inp = [i.repeat(n_samples, axis=0) for i in inputs]
-            return self.sampler(inp, use_dropout)
+            inputs = [i.repeat(n_samples, axis=0) for i in inputs]
+            return self.sampler(inputs, use_dropout)
         else:
             raise Exception("Compile model with loss before sampling")
-
-class SampledSequence(keras.utils.Sequence):
-    def __init__(self, features, instruments, outputs, batch_size, sampler, n_samples=1, seed=None):
-        self.rng = numpy.random.RandomState(seed)
-        if not isinstance(features, list):
-            features = [features.copy()]
-        else:
-            features = [f.copy() for f in features]
-        self.features = features
-        self.instruments = instruments.copy()
-        self.outputs = outputs.copy()
-        self.batch_size = batch_size
-        self.sampler = sampler
-        self.n_samples = n_samples
-        self.current_index = 0
-        self.shuffle()
-
-    def __len__(self):
-        if isinstance(self.outputs, list):
-            return self.outputs[0].shape[0] // self.batch_size
-        else:
-            return self.outputs.shape[0] // self.batch_size
-
-    def shuffle(self):
-        idx = self.rng.permutation(numpy.arange(self.instruments.shape[0]))
-        self.instruments = self.instruments[idx,:]
-        self.outputs = self.outputs[idx,:]
-        self.features = [f[idx,:] for f in self.features]
-    
-    def __getitem__(self,idx):
-        instruments = [self.instruments[idx*self.batch_size:(idx+1)*self.batch_size, :]]
-        features = [inp[idx*self.batch_size:(idx+1)*self.batch_size, :] for inp in self.features]
-        sampler_input = instruments + features
-        samples = self.sampler(sampler_input, self.n_samples)
-        batch_features = [f[idx*self.batch_size:(idx+1)*self.batch_size].repeat(self.n_samples, axis=0) for f in self.features] + [samples]
-        batch_y = self.outputs[idx*self.batch_size:(idx+1)*self.batch_size].repeat(self.n_samples, axis=0)
-        if idx == (len(self) - 1):
-            self.shuffle()
-        return batch_features, batch_y
 
 class Response(Model):
     '''
@@ -229,7 +191,7 @@ class Response(Model):
             if loss in ["MSE", "mse", "mean_squared_error"]:
                 if batch_size is None:
                     raise ValueError("Must supply a batch_size argument if using unbiased gradients. Currently batch_size is None.")
-                replace_gradients_mse(self, optimizer, n_samples, batch_size)
+                replace_gradients_mse(self, optimizer, batch_size=batch_size, n_samples=n_samples)
             else:
                 warnings.warn("Unbiased gradient only implemented for mean square error loss. It is unnecessary for\
                               logistic losses and currently not implemented for absolute error losses.")
@@ -248,10 +210,9 @@ class Response(Model):
         '''
         if seed is None:
             seed = numpy.random.randint(0, 1e6)
-        generator = self._prepare_generator(samples_per_batch, seed)
-        #generator = SampledSequence(x[1:], x[0], y, batch_size, self.treatment.sample, 2)
+        generator = SampledSequence(x[1:], x[0], y, batch_size, self.treatment.sample, 2)
         steps_per_epoch = y.shape[0]  // batch_size
-        super(Response, self).fit_generator(generator=generator(x, y, batch_size),
+        super(Response, self).fit_generator(generator=generator,
                                             steps_per_epoch=steps_per_epoch,
                                             epochs=epochs, verbose=verbose,
                                             callbacks=callbacks, validation_data=validation_data,
@@ -292,8 +253,8 @@ class Response(Model):
         else:
             return self._E_representation(inputs, n_samples, seed)
 
-    def conditional_representation(self, x, t):
-        inputs = [x, t]
+    def conditional_representation(self, x, p):
+        inputs = [x, p]
         if not hasattr(self, "_c_representation"):          
             intermediate_layer_model = Model(inputs=self.inputs,
                                              outputs=self.layers[-2].output)
@@ -338,3 +299,54 @@ class Response(Model):
         upper = numpy.percentile(samples.copy(), 100*(p+alpha), axis=1)
         lower = numpy.percentile(samples.copy(), 100*(alpha), axis=1)
         return lower, upper
+
+    def confidence_interval(self, x_lo, z_lo, p_lo, y_lo, n_samples=500, alpha=0.):
+        n = x_lo.shape[0]
+        eta_lo = self.conditional_representation(x=x_lo, p=p_lo)
+        eta_bar = self.expected_representation(x=x_lo, z=z_lo, n_samples=n_samples)
+        eta_bar = eta_bar.reshape((n, n_samples, -1)).mean(axis=1)
+
+        ols1 = linear_model.Ridge(alpha=alpha, fit_intercept=True)
+        ols1.fit(eta_lo, eta_bar)
+        #TODO: complete...
+
+
+
+class SampledSequence(keras.utils.Sequence):
+    def __init__(self, features, instruments, outputs, batch_size, sampler, n_samples=1, seed=None):
+        self.rng = numpy.random.RandomState(seed)
+        if not isinstance(features, list):
+            features = [features.copy()]
+        else:
+            features = [f.copy() for f in features]
+        self.features = features
+        self.instruments = instruments.copy()
+        self.outputs = outputs.copy()
+        self.batch_size = batch_size
+        self.sampler = sampler
+        self.n_samples = n_samples
+        self.current_index = 0
+        self.shuffle()
+
+    def __len__(self):
+        if isinstance(self.outputs, list):
+            return self.outputs[0].shape[0] // self.batch_size
+        else:
+            return self.outputs.shape[0] // self.batch_size
+
+    def shuffle(self):
+        idx = self.rng.permutation(numpy.arange(self.instruments.shape[0]))
+        self.instruments = self.instruments[idx,:]
+        self.outputs = self.outputs[idx,:]
+        self.features = [f[idx,:] for f in self.features]
+    
+    def __getitem__(self,idx):
+        instruments = [self.instruments[idx*self.batch_size:(idx+1)*self.batch_size, :]]
+        features = [inp[idx*self.batch_size:(idx+1)*self.batch_size, :] for inp in self.features]
+        sampler_input = instruments + features
+        samples = self.sampler(sampler_input, self.n_samples)
+        batch_features = [f[idx*self.batch_size:(idx+1)*self.batch_size].repeat(self.n_samples, axis=0) for f in self.features] + [samples]
+        batch_y = self.outputs[idx*self.batch_size:(idx+1)*self.batch_size].repeat(self.n_samples, axis=0)
+        if idx == (len(self) - 1):
+            self.shuffle()
+        return batch_features, batch_y

@@ -45,9 +45,7 @@ def replace_gradients_mse(model, opt, batch_size, n_samples = 1):
     dL_dOutput = (output[:,0] - targets[:,0]) * (2.) / batch_size
     # compute (d Loss / d output) (d output / d theta) for each theta
     trainable_weights = model.trainable_weights
-    trainable_weights.sort(key=lambda x: x.name if x.name else x.auto_name)
     grads = Lop(output[:,1], wrt=trainable_weights, eval_points=dL_dOutput) 
-    grads = K.gradients(model.total_loss, trainable_weights)
     # compute regularizer gradients
 
     # add loss with respect to regularizers
