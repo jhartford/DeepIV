@@ -12,7 +12,8 @@ with open('HISTORY.rst') as history_file:
 requirements = [
     "keras",
     "tensorflow",
-    "sklearn"
+    "sklearn", # required for comparing to linear
+    "h5py" # required for saving models
 ]
 
 optimal_packages = {

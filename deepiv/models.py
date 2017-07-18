@@ -16,7 +16,8 @@ import keras.utils
 
 import numpy
 from sklearn import linear_model
-
+from sklearn.decomposition import PCA
+from scipy.stats import norm
 
 class Treatment(Model):
     '''
@@ -81,7 +82,7 @@ class Treatment(Model):
         Build sampler
         '''
         if isinstance(loss, str):
-            self.sampler = self._get_sampler_by_string(loss)
+            self._sampler = self._get_sampler_by_string(loss)
         else:
             warnings.warn("You're using a custom loss function. Make sure you implement\
                            the model's sample() fuction yourself.")
@@ -125,11 +126,11 @@ class Treatment(Model):
         '''
         Draw samples from the keras model.
         '''
-        if hasattr(self, "sampler"):
+        if hasattr(self, "_sampler"):
             if not isinstance(inputs, list):
                 inputs = [inputs]
             inputs = [i.repeat(n_samples, axis=0) for i in inputs]
-            return self.sampler(inputs, use_dropout)
+            return self._sampler(inputs, use_dropout)
         else:
             raise Exception("Compile model with loss before sampling")
 
@@ -237,17 +238,17 @@ class Response(Model):
                 steps = 1
             else:
                 steps = inputs[0].shape[0] // batch_size
-            
 
             intermediate_layer_model = Model(inputs=self.inputs,
                                              outputs=self.layers[-2].output)
+            
+            def pred(inputs, n_samples=100, seed=None):
+                features = inputs[1]
 
-            def pred(inputs, n_samples = 100, seed=None):
-                gen = self._prepare_generator(n_samples, seed)
-                representation = intermediate_layer_model.predict_generator(generator=gen(inputs,
-                                                    batch_size=batch_size),
-                                                    steps=steps)
-                return representation.reshape((inputs[0].shape[0], n_samples, -1))
+                samples = self.treatment.sample(inputs, n_samples)
+                batch_features = [features.repeat(n_samples, axis=0)] + [samples]
+                representation = intermediate_layer_model.predict(batch_features)
+                return representation.reshape((inputs[0].shape[0], n_samples, -1)).mean(axis=1)
             self._E_representation = pred
             return self._E_representation(inputs, n_samples, seed)
         else:
@@ -300,15 +301,45 @@ class Response(Model):
         lower = numpy.percentile(samples.copy(), 100*(alpha), axis=1)
         return lower, upper
 
-    def confidence_interval(self, x_lo, z_lo, p_lo, y_lo, n_samples=500, alpha=0.):
-        n = x_lo.shape[0]
-        eta_lo = self.conditional_representation(x=x_lo, p=p_lo)
+    def _add_constant(self, X):
+        return numpy.concatenate((numpy.ones((X.shape[0], 1)), X), axis=1)
+    
+    def predict_confidence(self, x, p):
+        if hasattr(self, "_predict_confidence"):
+            return self._predict_confidence(x, p)
+        else:
+            raise Exception("Call fit_confidence_interval before running predict_confidence")
+
+    
+    def fit_confidence_interval(self, x_lo, z_lo, p_lo, y_lo, n_samples=100, alpha=0.):
         eta_bar = self.expected_representation(x=x_lo, z=z_lo, n_samples=n_samples)
-        eta_bar = eta_bar.reshape((n, n_samples, -1)).mean(axis=1)
+        pca = PCA(1-1e-16, svd_solver="full", whiten=True)
+        pca.fit(eta_bar)
+
+        eta_bar = pca.transform(eta_bar)
+        eta_lo_prime = pca.transform(self.conditional_representation(x_lo, p_lo))
+        eta_lo = self._add_constant(eta_lo_prime)
 
         ols1 = linear_model.Ridge(alpha=alpha, fit_intercept=True)
-        ols1.fit(eta_lo, eta_bar)
-        #TODO: complete...
+        ols1.fit(eta_bar, eta_lo_prime)
+        hhat = ols1.predict(eta_bar)
+        ols2 = linear_model.Ridge(alpha=alpha, fit_intercept=False)
+        ols2.fit(self._add_constant(hhat), y_lo)
+
+        yhat = ols2.predict(eta_lo)
+        hhi = numpy.linalg.inv(numpy.dot(eta_lo.T, eta_lo))
+
+        heh = numpy.dot(eta_lo.T, numpy.square(y_lo - yhat) * eta_lo)
+        V = numpy.dot(numpy.dot(hhi, heh), hhi)
+
+        def pred(xx, pp):
+            H = self._add_constant(pca.transform(self.conditional_representation(xx,pp)))
+            sdhb = numpy.sqrt(numpy.diag(numpy.dot(numpy.dot(H, V), H.T)))
+            hb = ols2.predict(H).flatten()
+            return hb, sdhb
+        
+        self._predict_confidence = pred
+
 
 
 
