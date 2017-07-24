@@ -75,8 +75,6 @@ response_model.compile('adam', loss='mse')
 response_model.fit([z, x], y, epochs=epochs, verbose=1,
                    batch_size=batch_size, samples_per_batch=2)
 
-print("Learnt representation phi(x, t):")
-print(response_model.get_represetation([x, t]))
 
 oos_perf = data_generator.monte_carlo_error(lambda x,z,t: response_model.predict([x,t]), datafunction, has_latent=images, debug=False)
 print("Out of sample performance evaluated against the true function: %f" % oos_perf)

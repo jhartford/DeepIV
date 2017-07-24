@@ -35,7 +35,7 @@ def conv_embedding(images, output, other_features = [], dropout_rate=0.1,
 
 n = 5000
 dropout_rate = min(1000./(1000. + n), 0.5)
-epochs = 100
+
 embedding_dropout = 0.1
 embedding_l2 = 0.1
 epochs = int(1500000./float(n))
@@ -76,6 +76,7 @@ treatment_model.compile('adam',
                         n_components=10)
 
 treatment_model.fit([z, x[:,0:1], x[:,1:]], t, epochs=epochs, batch_size=batch_size)
+treatment_model.save("demand_mnist_treatment.hd5")
 
 # Build and fit response model
 
@@ -87,9 +88,11 @@ out_res = conv_embedding(image_reshaped, Dense(1, activation='linear'), [time, t
 response_model = Response(treatment=treatment_model,
                           inputs=[time, images, treatment],
                           outputs=out_res)
-response_model.compile('adam', loss='mse')
+
+response_model.compile('adam', loss='mse', unbiased_gradient=True, batch_size=batch_size)
 response_model.fit([z, x[:,0:1], x[:,1:]], y, epochs=epochs, verbose=1,
                    batch_size=batch_size, samples_per_batch=2)
+treatment_model.save("demand_mnist_response.hd5")
 
 def datafunction(n, s, images=True, test=False):
     return data_generator.demand(n=n, seed=s, ypcor=0.5, use_images=images, test=test)
