@@ -30,7 +30,6 @@ class Treatment(Model):
     def _get_sampler_by_string(self, loss):
         output = self.outputs[0]
         inputs = self.inputs
-        print("Sampler inputs:",inputs)
 
         if loss in ["MSE", "mse", "mean_squared_error"]:
             output += samplers.random_normal(K.shape(output), mean=0.0, std=1.0)
@@ -155,39 +154,11 @@ class Response(Model):
                              treatment model first." % type(treatment))
         super(Response, self).__init__(**kwargs)
 
-    def _prepare_generator(self, n_samples=2, seed=123):
-        def data_generator(inputs, outputs=None, batch_size=100, dropout_sampling=False):
-            '''
-            Data generator that samples from the treatment network during training
-            '''
-            n_train = inputs[0].shape[0]
-            rng = numpy.random.RandomState(seed)
-            batch_size = min(batch_size, n_train)
-            idx = numpy.arange(n_train)
-            while 1:
-                idx = rng.permutation(idx)
-                inputs = [inp[idx, :] for inp in inputs] #shuffle examples
-                if outputs is not None: 
-                    outputs = outputs[idx, :]
-                n_batches = n_train//batch_size
-                for i in range(n_batches):
-                    instruments = [inputs[0][i*batch_size:(i+1)*batch_size, :]]
-                    features = [inp[i*batch_size:(i+1)*batch_size, :] for inp in inputs[1:]]
-                    sampler_input = instruments + features
-                    sampled_t = self.treatment.sample(sampler_input, n_samples, use_dropout=dropout_sampling)
-                    response_inp = [inp.repeat(n_samples, axis=0) for inp in features] + [sampled_t]
-                    if outputs is not None:
-                        y_train = outputs[i*batch_size:(i+1)*batch_size, :].repeat(n_samples, axis=0)
-                        yield response_inp, y_train
-                    else:
-                        yield response_inp
-                
-        return data_generator
-
     def compile(self, optimizer, loss, metrics=None, loss_weights=None, sample_weight_mode=None,
                 unbiased_gradient=False,n_samples=1, batch_size=None):
         super(Response, self).compile(optimizer=optimizer, loss=loss, loss_weights=loss_weights,
                                       sample_weight_mode=sample_weight_mode)
+        self.unbiased_gradient = unbiased_gradient
         if unbiased_gradient:
             if loss in ["MSE", "mse", "mean_squared_error"]:
                 if batch_size is None:
@@ -199,8 +170,8 @@ class Response(Model):
             
 
     def fit(self, x=None, y=None, batch_size=512, epochs=1, verbose=1, callbacks=None,
-            validation_data=None, class_weight=None, initial_epoch=0, samples_per_batch=2,
-            seed=None):
+            validation_data=None, class_weight=None, initial_epoch=0, samples_per_batch=None,
+            seed=None, observed_treatments=None):
         '''
         Trains the model by sampling from the fitted treament distribution.
 
@@ -209,9 +180,21 @@ class Response(Model):
             y: (numpy array). Target response variables.
             The remainder of the arguments correspond to the Keras definitions.
         '''
+        batch_size = numpy.minimum(y.shape[0], batch_size)
         if seed is None:
             seed = numpy.random.randint(0, 1e6)
-        generator = SampledSequence(x[1:], x[0], y, batch_size, self.treatment.sample, 2)
+        if samples_per_batch is None:
+            if self.unbiased_gradient:
+                samples_per_batch = 2
+            else:
+                samples_per_batch = 1
+
+        if observed_treatments is None:
+            generator = SampledSequence(x[1:], x[0], y, batch_size, self.treatment.sample, samples_per_batch)
+        else:
+            generator = OnesidedUnbaised(x[1:], x[0], y, observed_treatments, batch_size,
+                                         self.treatment.sample, samples_per_batch)
+        
         steps_per_epoch = y.shape[0]  // batch_size
         super(Response, self).fit_generator(generator=generator,
                                             steps_per_epoch=steps_per_epoch,
@@ -353,7 +336,10 @@ class SampledSequence(keras.utils.Sequence):
         self.features = features
         self.instruments = instruments.copy()
         self.outputs = outputs.copy()
-        self.batch_size = batch_size
+        if batch_size < self.instruments.shape[0]:
+            self.batch_size = batch_size
+        else:
+            self.batch_size = self.instruments.shape[0]
         self.sampler = sampler
         self.n_samples = n_samples
         self.current_index = 0
@@ -376,6 +362,43 @@ class SampledSequence(keras.utils.Sequence):
         features = [inp[idx*self.batch_size:(idx+1)*self.batch_size, :] for inp in self.features]
         sampler_input = instruments + features
         samples = self.sampler(sampler_input, self.n_samples)
+        batch_features = [f[idx*self.batch_size:(idx+1)*self.batch_size].repeat(self.n_samples, axis=0) for f in self.features] + [samples]
+        batch_y = self.outputs[idx*self.batch_size:(idx+1)*self.batch_size].repeat(self.n_samples, axis=0)
+        if idx == (len(self) - 1):
+            self.shuffle()
+        return batch_features, batch_y
+
+class OnesidedUnbaised(SampledSequence):
+    def __init__(self, features, instruments, outputs, treatments, batch_size, sampler, n_samples=1, seed=None):
+        self.rng = numpy.random.RandomState(seed)
+        if not isinstance(features, list):
+            features = [features.copy()]
+        else:
+            features = [f.copy() for f in features]
+        self.features = features
+        self.instruments = instruments.copy()
+        self.outputs = outputs.copy()
+        self.treatments = treatments.copy()
+        self.batch_size = batch_size
+        self.sampler = sampler
+        self.n_samples = n_samples
+        self.current_index = 0
+        self.shuffle()
+
+    def shuffle(self):
+        idx = self.rng.permutation(numpy.arange(self.instruments.shape[0]))
+        self.instruments = self.instruments[idx,:]
+        self.outputs = self.outputs[idx,:]
+        self.features = [f[idx,:] for f in self.features]
+        self.treatments = self.treatments[idx,:]
+
+    def __getitem__(self, idx):
+        instruments = [self.instruments[idx*self.batch_size:(idx+1)*self.batch_size, :]]
+        features = [inp[idx*self.batch_size:(idx+1)*self.batch_size, :] for inp in self.features]
+        observed_treatments = self.treatments[idx*self.batch_size:(idx+1)*self.batch_size, :]
+        sampler_input = instruments + features
+        samples = self.sampler(sampler_input, self.n_samples // 2)
+        samples = numpy.concatenate([observed_treatments, samples], axis=0)
         batch_features = [f[idx*self.batch_size:(idx+1)*self.batch_size].repeat(self.n_samples, axis=0) for f in self.features] + [samples]
         batch_y = self.outputs[idx*self.batch_size:(idx+1)*self.batch_size].repeat(self.n_samples, axis=0)
         if idx == (len(self) - 1):
