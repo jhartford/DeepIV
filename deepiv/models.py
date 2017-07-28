@@ -11,6 +11,12 @@ from deepiv.custom_gradients import replace_gradients_mse
 from keras.models import Model
 from keras import backend as K
 from keras.layers import Lambda, InputLayer
+from keras.engine import topology
+try:
+    import h5py
+except ImportError:
+    h5py = None
+
 
 import keras.utils
 
@@ -404,3 +410,14 @@ class OnesidedUnbaised(SampledSequence):
         if idx == (len(self) - 1):
             self.shuffle()
         return batch_features, batch_y
+
+def load_weights(filepath, model):
+    if h5py is None:
+        raise ImportError('`load_weights` requires h5py.')
+
+    with h5py.File(filepath, mode='r') as f:
+        # set weights
+        topology.load_weights_from_hdf5_group(f['model_weights'], model.layers)
+
+    return model
+
