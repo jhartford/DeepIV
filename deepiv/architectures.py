@@ -24,13 +24,16 @@ def feed_forward_net(input, output, hidden_layers=[64, 64], activations='relu',
             regression.
     '''
     state = input
-    for h in hidden_layers:
+    if isinstance(activations, str):
+        activations = [activations] * len(hidden_layers)
+    
+    for h, a in zip(hidden_layers, activations):
         if l2 > 0.:
             w_reg = keras.regularizers.l2(l2)
         else:
             w_reg = None
         const = maxnorm(2) if constrain_norm else  None
-        state = Dense(h, activation=activations, kernel_regularizer=w_reg, kernel_constraint=const)(state)
+        state = Dense(h, activation=a, kernel_regularizer=w_reg, kernel_constraint=const)(state)
         if dropout_rate > 0.:
             state = Dropout(dropout_rate)(state)
     return output(state)
