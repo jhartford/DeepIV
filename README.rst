@@ -18,7 +18,9 @@ DeepIV
      :alt: Updates
 
 
-A package for counter factual prediction using deep instrument variable methods that builds on Keras_. 
+A package for counterfactual prediction using deep instrument variable methods that builds on Keras_. 
+
+You can read how the method works in our DeepIV_ paper.
 
 If you use this package in your research, please cite it as::
 
@@ -77,6 +79,7 @@ Credits
 
 This package was created with Cookiecutter_ and the `audreyr/cookiecutter-pypackage`_ project template.
 
+.. _DeepIV: http://proceedings.mlr.press/v70/hartford17a.html
 .. _Keras: https://keras.io
 .. _Cookiecutter: https://github.com/audreyr/cookiecutter
 .. _`audreyr/cookiecutter-pypackage`: https://github.com/audreyr/cookiecutter-pypackage
