@@ -44,8 +44,9 @@ hidden = [128, 64, 32]
 
 act = "relu"
 
+n_components = 10
 
-est_treat = architectures.feed_forward_net(treatment_input, lambda x: densities.mixture_of_gaussian_output(x, 10),
+est_treat = architectures.feed_forward_net(treatment_input, lambda x: densities.mixture_of_gaussian_output(x, n_components),
                                            hidden_layers=hidden,
                                            dropout_rate=dropout_rate, l2=0.0001,
                                            activations=act)
@@ -53,7 +54,7 @@ est_treat = architectures.feed_forward_net(treatment_input, lambda x: densities.
 treatment_model = Treatment(inputs=[instruments, features], outputs=est_treat)
 treatment_model.compile('adam',
                         loss="mixture_of_gaussians",
-                        n_components=10)
+                        n_components=n_components)
 
 treatment_model.fit([z, x], t, epochs=epochs, batch_size=batch_size)
 

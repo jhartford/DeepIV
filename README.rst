@@ -18,6 +18,8 @@ DeepIV
      :alt: Updates
 
 
+IMPORTANT: Newer versions of Keras have broken this implementation. This code currently only support Keras 2.0.6 (which is what will be installed if you use the pip install instructions described below).
+
 A package for counterfactual prediction using deep instrument variable methods that builds on Keras_. 
 
 You can read how the method works in our DeepIV_ paper.

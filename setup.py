@@ -10,7 +10,7 @@ with open('HISTORY.rst') as history_file:
     history = history_file.read()
 
 requirements = [
-    "keras",
+    "keras==2.0.6",
     "tensorflow",
     "sklearn", # required for comparing to linear
     "h5py" # required for saving models
