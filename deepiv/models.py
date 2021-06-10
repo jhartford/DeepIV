@@ -6,24 +6,51 @@ import warnings
 import deepiv.samplers as samplers
 import deepiv.densities as densities
 
-from deepiv.custom_gradients import replace_gradients_mse
+from deepiv.custom_gradients import *
+import tensorflow as tf
+from tensorflow.keras.models import Model
 
-from keras.models import Model
-from keras import backend as K
-from keras.layers import Lambda, InputLayer
-from keras.engine import topology
+from tensorflow.keras import backend as K
+from tensorflow.keras.layers import Lambda, InputLayer
+# from tensorflow.keras.engine import topology
 try:
     import h5py
 except ImportError:
     h5py = None
 
 
-import keras.utils
+import tensorflow.keras.utils
 
 import numpy
 from sklearn import linear_model
 from sklearn.decomposition import PCA
 from scipy.stats import norm
+
+
+def new_loss(y_true, y_pred):
+    """
+    in the unbiased case, we sample two independent samples each time, and y_ture has already been repeated 2 times, 
+    """
+    (batch_size, n_samples) = y_true.shape
+    batch_size //= 2
+
+    targets = K.reshape(y_true, (batch_size, n_samples * 2))
+    output = K.mean(K.reshape(y_pred, (batch_size, n_samples, 2)), axis=1)
+    targets = tf.cast(targets, dtype=output.dtype)
+    # compute d Loss / d output
+    dL_dOutput = (output[:, 0] - targets[:, 0]) * (2.) / batch_size
+    # compute (d Loss / d output) (d output / d theta) for each theta
+    trainable_weights = model.trainable_weights
+    grads = Lop(output[:, 1], wrt=trainable_weights, eval_points=dL_dOutput)
+    # compute regularizer gradients
+
+    # add loss with respect to regularizers
+    reg_loss = model.total_loss * 0.
+    for r in model.losses:
+        reg_loss += r
+    reg_grads = K.gradients(reg_loss, trainable_weights)
+    grads = [g+r for g, r in zip(grads, reg_grads)]
+
 
 class Treatment(Model):
     '''
@@ -64,6 +91,7 @@ class Treatment(Model):
         elif loss in ["mean_absolute_error", "mae", "MAE"]:
             output += samplers.random_laplace(K.shape(output), mu=0.0, b=1.0)
             draw_sample = K.function(inputs + [K.learning_phase()], [output])
+
             def sample_laplace(inputs, use_dropout=False):
                 '''
                 Helper to draw samples from a Laplacian distribution
@@ -74,9 +102,27 @@ class Treatment(Model):
 
         elif loss == "mixture_of_gaussians":
             pi, mu, log_sig = densities.split_mixture_of_gaussians(output, self.n_components)
-            samples = samplers.random_gmm(pi, mu, K.exp(log_sig))
-            draw_sample = K.function(inputs + [K.learning_phase()], [samples])
-            return lambda inputs, use_dropout: draw_sample(inputs + [int(use_dropout)])[0]
+            samples = samplers.random_gmm(pi, mu, K.exp(log_sig))  # samples shape None
+
+            draw_sample = Model(inputs=inputs, outputs=[samples])  # symbolic_learning_phase
+
+            def sample_gmm(inputs, use_dropout=False):
+                '''
+                Another option is:                
+                >>> draw_sample = K.function(inputs, [samples])
+                >>> with K.set_learning_phase(int(use_dropout)):
+                ...    return draw_sample(inputs + [int(use_dropout)])[0]
+
+                For the follow `draw_sample`, the return is not a list anymore, so I no longer use `outs[0]`.
+                if you want to use the list, please look it up in https://github.com/tensorflow/tensorflow/blob/master/tensorflow/python/keras/backend.py (line: 4109).
+                '''
+                outs = draw_sample(inputs, training=use_dropout)
+                return outs
+
+            # I didn't use the lambda function
+            # return lambda inputs, use_dropout: draw_sample(inputs + [int(use_dropout)])[0]
+
+            return sample_gmm
 
         else:
             raise NotImplementedError("Unrecognised loss: %s.\
@@ -107,9 +153,15 @@ class Treatment(Model):
                                  supply n_components argument")
             self.n_components = n_components
             self._prepare_sampler(loss)
-            loss = lambda y_true, y_pred: densities.mixture_of_gaussian_loss(y_true,
-                                                                             y_pred,
-                                                                             n_components)
+
+            def loss(y_true, y_pred):
+                """
+                customized loss function returns a scalar for each data-point and takes the following two arguments:
+                y_true: True labels. TensorFlow/Theano tensor.
+                y_pred: Predictions. TensorFlow/Theano tensor of the same shape as y_true.
+                """
+                return densities.mixture_of_gaussian_loss(y_true, y_pred,
+                                                          n_components)
 
             def predict_mean(x, batch_size=32, verbose=0):
                 '''
@@ -139,41 +191,70 @@ class Treatment(Model):
         else:
             raise Exception("Compile model with loss before sampling")
 
+
 class Response(Model):
     '''
     Extends the Keras Model class to support sampling from the Treatment
     model during training.
 
-    Overwrites the existing fit_generator function.
+    Overwrites the existing fit_generator function. where 
+    -> object : the Keras Object model.
+    -> generator : a generator whose output must be a list of the form:
+                      - (inputs, targets)    
+                      - (input, targets, sample_weights)
 
     # Arguments
     In addition to the standard model arguments, a Response object takes
     a Treatment object as input so that it can sample from the fitted treatment
     distriubtion during training.
     '''
+
     def __init__(self, treatment, **kwargs):
+        super(Response, self).__init__(**kwargs)
         if isinstance(treatment, Treatment):
             self.treatment = treatment
         else:
             raise TypeError("Expected a treatment model of type Treatment. \
                              Got a model of type %s. Remember to train your\
                              treatment model first." % type(treatment))
-        super(Response, self).__init__(**kwargs)
 
-    def compile(self, optimizer, loss, metrics=None, loss_weights=None, sample_weight_mode=None,
-                unbiased_gradient=False,n_samples=1, batch_size=None):
+    def compile_old(self, optimizer, loss, metrics=None, loss_weights=None, sample_weight_mode=None,
+                    unbiased_gradient=False, n_samples=1, batch_size=None):
         super(Response, self).compile(optimizer=optimizer, loss=loss, loss_weights=loss_weights,
                                       sample_weight_mode=sample_weight_mode)
         self.unbiased_gradient = unbiased_gradient
         if unbiased_gradient:
             if loss in ["MSE", "mse", "mean_squared_error"]:
                 if batch_size is None:
-                    raise ValueError("Must supply a batch_size argument if using unbiased gradients. Currently batch_size is None.")
+                    raise ValueError(
+                        "Must supply a batch_size argument if using unbiased gradients. Currently batch_size is None.")
                 replace_gradients_mse(self, optimizer, batch_size=batch_size, n_samples=n_samples)
             else:
                 warnings.warn("Unbiased gradient only implemented for mean square error loss. It is unnecessary for\
                               logistic losses and currently not implemented for absolute error losses.")
-            
+
+    def compile(self, optimizer, loss, metrics=None, loss_weights=None, sample_weight_mode=None,
+                unbiased_gradient=False, n_samples=1, batch_size=None):
+
+        self.unbiased_gradient = unbiased_gradient
+        if unbiased_gradient:
+            if loss in ["MSE", "mse", "mean_squared_error"]:
+                if batch_size is None:
+                    raise ValueError(
+                        "Must supply a batch_size argument if using unbiased gradients. Currently batch_size is None.")
+
+                def unbiased_loss(y_true, y_pred):
+
+                    return unbiased_mse_loss(y_true, y_pred, batch_size, n_samples)
+
+                loss = unbiased_loss
+
+                # replace_gradients_mse(self, optimizer, batch_size=batch_size, n_samples=n_samples)
+            else:
+                warnings.warn("Unbiased gradient only implemented for mean square error loss. It is unnecessary for\
+                              logistic losses and currently not implemented for absolute error losses.")
+        super(Response, self).compile(optimizer=optimizer, loss=loss, loss_weights=loss_weights,
+                                      sample_weight_mode=sample_weight_mode)
 
     def fit(self, x=None, y=None, batch_size=512, epochs=1, verbose=1, callbacks=None,
             validation_data=None, class_weight=None, initial_epoch=0, samples_per_batch=None,
@@ -200,13 +281,14 @@ class Response(Model):
         else:
             generator = OnesidedUnbaised(x[1:], x[0], y, observed_treatments, batch_size,
                                          self.treatment.sample, samples_per_batch)
-        
-        steps_per_epoch = y.shape[0]  // batch_size
-        super(Response, self).fit_generator(generator=generator,
-                                            steps_per_epoch=steps_per_epoch,
-                                            epochs=epochs, verbose=verbose,
-                                            callbacks=callbacks, validation_data=validation_data,
-                                            class_weight=class_weight, initial_epoch=initial_epoch)
+
+        steps_per_epoch = int(y.shape[0] // batch_size)
+
+        super(Response, self).fit(generator,
+                                  steps_per_epoch=steps_per_epoch,
+                                  epochs=epochs, verbose=verbose,
+                                  callbacks=callbacks, validation_data=validation_data,
+                                  class_weight=class_weight, initial_epoch=initial_epoch)
 
     def fit_generator(self, **kwargs):
         '''
@@ -230,7 +312,7 @@ class Response(Model):
 
             intermediate_layer_model = Model(inputs=self.inputs,
                                              outputs=self.layers[-2].output)
-            
+
             def pred(inputs, n_samples=100, seed=None):
                 features = inputs[1]
 
@@ -245,7 +327,7 @@ class Response(Model):
 
     def conditional_representation(self, x, p):
         inputs = [x, p]
-        if not hasattr(self, "_c_representation"):          
+        if not hasattr(self, "_c_representation"):
             intermediate_layer_model = Model(inputs=self.inputs,
                                              outputs=self.layers[-2].output)
 
@@ -260,11 +342,11 @@ class Response(Model):
         else:
             inputs = [z, x]
         if not hasattr(self, "_dropout_predict"):
-            
+
             predict_with_dropout = K.function(self.inputs + [K.learning_phase()],
                                               [self.layers[-1].output])
 
-            def pred(inputs, n_samples = 100):
+            def pred(inputs, n_samples=100):
                 # draw samples from the treatment network with dropout turned on
                 samples = self.treatment.sample(inputs, n_samples, use_dropout=True)
                 # prepare inputs for the response network
@@ -292,14 +374,13 @@ class Response(Model):
 
     def _add_constant(self, X):
         return numpy.concatenate((numpy.ones((X.shape[0], 1)), X), axis=1)
-    
+
     def predict_confidence(self, x, p):
         if hasattr(self, "_predict_confidence"):
             return self._predict_confidence(x, p)
         else:
             raise Exception("Call fit_confidence_interval before running predict_confidence")
 
-    
     def fit_confidence_interval(self, x_lo, z_lo, p_lo, y_lo, n_samples=100, alpha=0.):
         eta_bar = self.expected_representation(x=x_lo, z=z_lo, n_samples=n_samples)
         pca = PCA(1-1e-16, svd_solver="full", whiten=True)
@@ -322,17 +403,15 @@ class Response(Model):
         V = numpy.dot(numpy.dot(hhi, heh), hhi)
 
         def pred(xx, pp):
-            H = self._add_constant(pca.transform(self.conditional_representation(xx,pp)))
+            H = self._add_constant(pca.transform(self.conditional_representation(xx, pp)))
             sdhb = numpy.sqrt(numpy.diag(numpy.dot(numpy.dot(H, V), H.T)))
             hb = ols2.predict(H).flatten()
             return hb, sdhb
-        
+
         self._predict_confidence = pred
 
 
-
-
-class SampledSequence(keras.utils.Sequence):
+class SampledSequence(tensorflow.keras.utils.Sequence):
     def __init__(self, features, instruments, outputs, batch_size, sampler, n_samples=1, seed=None):
         self.rng = numpy.random.RandomState(seed)
         if not isinstance(features, list):
@@ -359,20 +438,22 @@ class SampledSequence(keras.utils.Sequence):
 
     def shuffle(self):
         idx = self.rng.permutation(numpy.arange(self.instruments.shape[0]))
-        self.instruments = self.instruments[idx,:]
-        self.outputs = self.outputs[idx,:]
-        self.features = [f[idx,:] for f in self.features]
-    
-    def __getitem__(self,idx):
+        self.instruments = self.instruments[idx, :]
+        self.outputs = self.outputs[idx, :]
+        self.features = [f[idx, :] for f in self.features]
+
+    def __getitem__(self, idx):
         instruments = [self.instruments[idx*self.batch_size:(idx+1)*self.batch_size, :]]
         features = [inp[idx*self.batch_size:(idx+1)*self.batch_size, :] for inp in self.features]
         sampler_input = instruments + features
         samples = self.sampler(sampler_input, self.n_samples)
-        batch_features = [f[idx*self.batch_size:(idx+1)*self.batch_size].repeat(self.n_samples, axis=0) for f in self.features] + [samples]
+        batch_features = [f[idx*self.batch_size:(idx+1)*self.batch_size].repeat(self.n_samples, axis=0)
+                          for f in self.features] + [samples]
         batch_y = self.outputs[idx*self.batch_size:(idx+1)*self.batch_size].repeat(self.n_samples, axis=0)
         if idx == (len(self) - 1):
             self.shuffle()
         return batch_features, batch_y
+
 
 class OnesidedUnbaised(SampledSequence):
     def __init__(self, features, instruments, outputs, treatments, batch_size, sampler, n_samples=1, seed=None):
@@ -393,10 +474,10 @@ class OnesidedUnbaised(SampledSequence):
 
     def shuffle(self):
         idx = self.rng.permutation(numpy.arange(self.instruments.shape[0]))
-        self.instruments = self.instruments[idx,:]
-        self.outputs = self.outputs[idx,:]
-        self.features = [f[idx,:] for f in self.features]
-        self.treatments = self.treatments[idx,:]
+        self.instruments = self.instruments[idx, :]
+        self.outputs = self.outputs[idx, :]
+        self.features = [f[idx, :] for f in self.features]
+        self.treatments = self.treatments[idx, :]
 
     def __getitem__(self, idx):
         instruments = [self.instruments[idx*self.batch_size:(idx+1)*self.batch_size, :]]
@@ -405,19 +486,20 @@ class OnesidedUnbaised(SampledSequence):
         sampler_input = instruments + features
         samples = self.sampler(sampler_input, self.n_samples // 2)
         samples = numpy.concatenate([observed_treatments, samples], axis=0)
-        batch_features = [f[idx*self.batch_size:(idx+1)*self.batch_size].repeat(self.n_samples, axis=0) for f in self.features] + [samples]
+        batch_features = [f[idx*self.batch_size:(idx+1)*self.batch_size].repeat(self.n_samples, axis=0)
+                          for f in self.features] + [samples]
         batch_y = self.outputs[idx*self.batch_size:(idx+1)*self.batch_size].repeat(self.n_samples, axis=0)
         if idx == (len(self) - 1):
             self.shuffle()
         return batch_features, batch_y
 
+
 def load_weights(filepath, model):
     if h5py is None:
         raise ImportError('`load_weights` requires h5py.')
 
-    with h5py.File(filepath, mode='r') as f:
+    # with h5py.File(filepath, mode='r') as f:
         # set weights
-        topology.load_weights_from_hdf5_group(f['model_weights'], model.layers)
-
+    #    topology.load_weights_from_hdf5_group(f['model_weights'], model.layers)
+    model.load_weights(filepath)
     return model
-

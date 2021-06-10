@@ -1,14 +1,14 @@
 from __future__ import absolute_import, division, print_function, unicode_literals
-
-import keras
-import keras.backend as K
-from keras.layers import (Convolution2D, Dense, Dropout, Flatten,
+import tensorflow as tf
+import tensorflow.keras as keras
+import tensorflow.keras.backend as K
+from tensorflow.keras.layers import (Convolution2D, Dense, Dropout, Flatten,
                           MaxPooling2D)
-from keras.models import Sequential
-from keras.regularizers import l2
-from keras.constraints import maxnorm
-from keras.utils import np_utils
-
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.regularizers import l2
+from tensorflow.keras.constraints import MaxNorm as maxnorm
+#from tensorflow.keras.utils import np_utils
+from tensorflow.python.keras import utils as np_utils
 import numpy as np
 
 def feed_forward_net(input, output, hidden_layers=[64, 64], activations='relu',
@@ -29,7 +29,7 @@ def feed_forward_net(input, output, hidden_layers=[64, 64], activations='relu',
     
     for h, a in zip(hidden_layers, activations):
         if l2 > 0.:
-            w_reg = keras.regularizers.l2(l2)
+            w_reg = tf.keras.regularizers.l2(l2)
         else:
             w_reg = None
         const = maxnorm(2) if constrain_norm else  None

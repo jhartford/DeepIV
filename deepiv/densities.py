@@ -1,12 +1,12 @@
 from __future__ import absolute_import, division, print_function, unicode_literals
 
 import numpy
-import keras
-from keras import backend as K
+import tensorflow.keras as keras
+from tensorflow.keras import backend as K
 
-from keras.layers.merge import Concatenate
-from keras.layers import Lambda
-from keras.layers.core import Reshape
+from tensorflow.keras.layers import Concatenate
+from tensorflow.keras.layers import Lambda
+from tensorflow.keras.layers import Reshape
 
 def split(start, stop):
     return Lambda(lambda x: x[:, start:stop], output_shape=(None, stop-start))

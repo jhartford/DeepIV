@@ -102,7 +102,7 @@ def demand(n, seed=1, ynoise=1., pnoise=1., ypcor=0.8, use_images=False, test=Fa
     # covariates: time and emotion
     time = rng.rand(n) * 10
     emotion_id = rng.randint(0, 7, size=n)
-    emotion = one_hot(emotion_id, n_values=7)
+    emotion = one_hot(emotion_id)
     if use_images:
         idx = np.argsort(emotion_id)
         emotion_feature = np.zeros((0, 28*28))
