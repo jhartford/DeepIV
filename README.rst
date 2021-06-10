@@ -18,7 +18,7 @@ DeepIV
      :alt: Updates
 
 
-IMPORTANT: Newer versions of Keras have broken this implementation. This code currently only support Keras 2.0.6 (which is what will be installed if you use the pip install instructions described below).
+IMPORTANT: Newer versions of Keras have broken this implementation. This code currently supports Keras 2.3.1, and the tensorflow version is 
 
 A package for counterfactual prediction using deep instrument variable methods that builds on Keras_. 
 
