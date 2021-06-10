@@ -55,6 +55,7 @@ def replace_gradients_mse(model, opt, batch_size, n_samples=1):
     dL_dOutput = (output[:, 0] - targets[:, 0]) * (2.) / batch_size
     # compute (d Loss / d output) (d output / d theta) for each theta
     trainable_weights = model.trainable_weights
+    grads = tf.gradients(output, wrt, grad_ys=eval_points)
     grads = Lop(output[:, 1], wrt=trainable_weights, eval_points=dL_dOutput)
     # compute regularizer gradients
 
@@ -63,6 +64,43 @@ def replace_gradients_mse(model, opt, batch_size, n_samples=1):
     for r in model.losses:
         reg_loss += r
     reg_grads = K.gradients(reg_loss, trainable_weights)
+    grads = [g+r for g, r in zip(grads, reg_grads)]
+
+    opt = keras.optimizers.get(opt)
+    # Patch keras gradient calculation to allow for user defined gradients
+    opt.get_gradients = types.MethodType(get_gradients, opt)
+    opt.grads = grads
+    model.optimizer = opt
+    return model
+
+
+def custom_mse_unbiased_loss(y_true, y_pred):
+    """
+    in the unbiased case, we sample two independent samples each time, and y_ture has already been repeated 2 times, 
+    """
+    (batch_size, n_samples) = y_true.shape
+    batch_size //= 2
+
+    targets = K.reshape(y_true, (batch_size, n_samples * 2))
+    output = K.mean(K.reshape(y_pred, (batch_size, n_samples, 2)), axis=1)
+    targets = tf.cast(targets, dtype=output.dtype)
+    # compute d Loss / d output
+    dL_dOutput = (output[:, 0] - targets[:, 0]) * (2.) / batch_size
+    # compute (d Loss / d output) (d output / d theta) for each theta
+    trainable_weights = model.trainable_weights
+    # grads = tf.gradients(output, wrt, grad_ys=eval_points)
+
+    grads = Lop(output[:, 1], wrt=trainable_weights, eval_points=dL_dOutput)
+    # compute regularizer gradients
+
+    with tf.GradientTape() as tape2:
+        # add loss with respect to regularizers
+        #reg_loss = model.total_loss * 0.
+        reg_loss = 0.
+        for r in model.losses:
+            reg_loss += r
+
+    reg_grads = tape.gradient(reg_loss, trainable_weights)
     grads = [g+r for g, r in zip(grads, reg_grads)]
 
     opt = keras.optimizers.get(opt)
