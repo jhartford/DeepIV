@@ -244,7 +244,6 @@ class Response(Model):
                         "Must supply a batch_size argument if using unbiased gradients. Currently batch_size is None.")
 
                 def unbiased_loss(y_true, y_pred):
-
                     return unbiased_mse_loss(y_true, y_pred, batch_size, n_samples)
 
                 loss = unbiased_loss

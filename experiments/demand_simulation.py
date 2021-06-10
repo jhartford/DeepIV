@@ -84,7 +84,7 @@ est_response = architectures.feed_forward_net(response_input, Dense(1),
 response_model = Response(treatment=treatment_model,
                           inputs=[features, treatment],
                           outputs=est_response)
-response_model.compile('adam', loss='mse', unbiased_gradient=True, batch_size=batch_size)
+response_model.compile('adam', loss='mse')  # unbiased_gradient=True, batch_size=batch_size)
 response_model.fit([z, x], y, epochs=epochs, verbose=1,
                    batch_size=batch_size, samples_per_batch=2)
 
