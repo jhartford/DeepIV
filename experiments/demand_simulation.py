@@ -16,7 +16,7 @@ from tensorflow.keras.layers import Concatenate
 # tf.executing_eagerly()
 
 
-n = 5000
+n = 1000
 dropout_rate = min(1000./(1000. + n), 0.5)
 epochs = int(1500000./float(n))  # heuristic to select number of epochs
 epochs = 100  # 300
@@ -88,7 +88,20 @@ response_model.compile('adam', loss='mse')  # unbiased_gradient=True, batch_size
 response_model.fit([z, x], y, epochs=epochs, verbose=1,
                    batch_size=batch_size, samples_per_batch=2)
 
-
+# monte_carlo_error(g_hat, data_fn, ntest=5000, has_latent=False, debug=False):
 oos_perf = data_generator.monte_carlo_error(lambda x, z, t: response_model.predict(
     [x, t]), datafunction, has_latent=images, debug=False)
 print("Out of sample performance evaluated against the true function: %f" % oos_perf)
+
+
+parser = argparse.ArgumentParser(description='Description of your program')
+parser.add_argument('-n', '--n_samples', help='Number of training samples', default=1000, type=int)
+parser.add_argument('-s', '--seed', help='Random seed', default=1, type=int)
+parser.add_argument('--endo', help='Endogeneity', default=0.5, type=float)
+parser.add_argument('--heartbeat', help='Use philly heartbeat', action='store_true')
+parser.add_argument('--results', help='Results file', default='twosls.csv')
+args = parser.parse_args()
+
+# prepare_file("./results/DeepIV_results.csv")
+# with open("DeepIV_results.csv", 'a') as f:
+#     f.write('%d,%d,%f,%f\n' % (args.n_samples, args.seed, args.endo, oos_perf))
