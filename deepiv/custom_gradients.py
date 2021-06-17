@@ -55,7 +55,7 @@ def replace_gradients_mse(model, opt, batch_size, n_samples=1):
     dL_dOutput = (output[:, 0] - targets[:, 0]) * (2.) / batch_size
     # compute (d Loss / d output) (d output / d theta) for each theta
     trainable_weights = model.trainable_weights
-    grads = tf.gradients(output, wrt, grad_ys=eval_points)
+    # grads = tf.gradients(output, wrt, grad_ys=eval_points)
     grads = Lop(output[:, 1], wrt=trainable_weights, eval_points=dL_dOutput)
     # compute regularizer gradients
 
@@ -74,7 +74,7 @@ def replace_gradients_mse(model, opt, batch_size, n_samples=1):
     return model
 
 
-def custom_mse_unbiased_loss(y_true, y_pred):
+def custom_mse_unbiased_gradients(model, y_true, y_pred):
     """
     in the unbiased case, we sample two independent samples each time, and y_ture has already been repeated 2 times, 
     """
@@ -118,18 +118,44 @@ def build_mc_mse_loss(n_samples):
     def mc_mse(y_true, y_pred):
         n_examples = y_true.shape[0] / n_samples / 2
         targets = y_true.reshape((n_examples, n_samples * 2))
-        output = y_pred.reshape((n_examples, n_samples * 2)).mean(axis=1)
+        output = y_pred.reshape((n_examples, n_samples, 2)).mean(axis=1)
         return K.mean(K.square(targets[:, 0] - output))
     return mc_mse
 
 
-def unbiased_mse_loss(y_true, y_pred, batch_size, n_samples=1):
+def unbiased_mse_loss_and_gradients(model,  y_true, y_pred, batch_size, n_samples=1):
     """
     In custom loss function, ytrue and y_pred need to be tensor with same dtype
+    n_samples is B in equattion (10)
     """
-    batch_size = batch_size//n_samples
-    targets = K.reshape(y_true, (batch_size, n_samples * 2))
-    output = K.mean(K.reshape(y_pred, (batch_size, n_samples * 2)), axis=1)
+
+    # total_size = y_pred.shape[0]
+    # batch_size = total_size//n_samples//2
+    targets = K.reshape(y_true, (batch_size, n_samples*2))
+    output = K.mean(K.reshape(y_pred, (batch_size, n_samples, 2)), axis=1)
     targets = tf.cast(targets, dtype=output.dtype)
 
-    return K.mean(K.square(targets[:, 0] - output))
+    # compute d Loss / d output
+    dL_dOutput = (output[:, 0] - targets[:, 0]) * (2.) / batch_size
+    # compute (d Loss / d output) (d output / d theta) for each theta
+    trainable_weights = model.trainable_weights
+    grads = tf.gradients(output[:, 1], trainable_weights, grad_ys=dL_dOutput)
+
+    # # add loss with respect to regularizers
+    # reg_loss = 0.
+    # for r in model.losses:
+    #     reg_loss += r
+    # reg_grads = K.gradients(reg_loss, trainable_weights)
+
+    # grads = [g+r for g, r in zip(grads, reg_grads)]
+
+    # opt = tensorflow.keras.optimizers.get(optimizer)
+    # opt.apply_gradients(zip(grads, trainable_weights))
+    # Patch keras gradient calculation to allow for user defined gradients
+    # opt.get_gradients = types.MethodType(get_gradients, opt)
+    # opt.grads = grads
+    # model.optimizer = opt
+
+    # loss = tf.math.multiply(output[:, 1] - targets[:, 1], output[:, 0] - targets[:, 0])
+
+    return grads

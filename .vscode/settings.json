@@ -1,3 +1,4 @@
 {
-    "python.pythonPath": "/home/liux3941/miniconda3/envs/deepivMY/bin/python"
+    "python.pythonPath": "/home/liux3941/miniconda3/envs/deepivMY/bin/python",
+    "jupyter.jupyterServerType": "local"
 }

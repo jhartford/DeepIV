@@ -3,13 +3,14 @@ import tensorflow as tf
 import tensorflow.keras as keras
 import tensorflow.keras.backend as K
 from tensorflow.keras.layers import (Convolution2D, Dense, Dropout, Flatten,
-                          MaxPooling2D)
+                                     MaxPooling2D)
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.regularizers import l2
 from tensorflow.keras.constraints import MaxNorm as maxnorm
 #from tensorflow.keras.utils import np_utils
 from tensorflow.python.keras import utils as np_utils
 import numpy as np
+
 
 def feed_forward_net(input, output, hidden_layers=[64, 64], activations='relu',
                      dropout_rate=0., l2=0., constrain_norm=False):
@@ -26,17 +27,18 @@ def feed_forward_net(input, output, hidden_layers=[64, 64], activations='relu',
     state = input
     if isinstance(activations, str):
         activations = [activations] * len(hidden_layers)
-    
+
     for h, a in zip(hidden_layers, activations):
         if l2 > 0.:
             w_reg = tf.keras.regularizers.l2(l2)
         else:
             w_reg = None
-        const = maxnorm(2) if constrain_norm else  None
+        const = maxnorm(2) if constrain_norm else None
         state = Dense(h, activation=a, kernel_regularizer=w_reg, kernel_constraint=const)(state)
         if dropout_rate > 0.:
             state = Dropout(dropout_rate)(state)
     return output(state)
+
 
 def convnet(input, output, dropout_rate=0., input_shape=(1, 28, 28), batch_size=100,
             l2_rate=0.001, nb_epoch=12, img_rows=28, img_cols=28, nb_filters=64,
@@ -73,6 +75,7 @@ def convnet(input, output, dropout_rate=0., input_shape=(1, 28, 28), batch_size=
         state = Dropout(dropout_rate)(state)
     return output(state)
 
+
 def feature_to_image(features, height=28, width=28, channels=1, backend=K):
     '''
     Reshape a flattened image to the input format for convolutions.
@@ -86,4 +89,3 @@ def feature_to_image(features, height=28, width=28, channels=1, backend=K):
         return backend.reshape(features, (-1, channels, height, width))
     else:
         return backend.reshape(features, (-1, height, width, channels))
-

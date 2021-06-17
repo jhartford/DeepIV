@@ -9,6 +9,7 @@ import deepiv.densities as densities
 from deepiv.custom_gradients import *
 import tensorflow as tf
 from tensorflow.keras.models import Model
+import tensorflow.keras.metrics as Metrics
 
 from tensorflow.keras import backend as K
 from tensorflow.keras.layers import Lambda, InputLayer
@@ -167,6 +168,21 @@ class Treatment(Model):
             raise Exception("Compile model with loss before sampling")
 
 
+@tf.custom_gradient
+def custom_op(model, targets, output, batch_size, n_samples):
+    result = ...  # do forward computation
+
+    def custom_grad(targets, output, batch_size, n_samples):
+        # grad = ...  # compute gradient
+        dL_dOutput = (output[:, 0] - targets[:, 0]) * (2.) / batch_size
+        # compute (d Loss / d output) (d output / d theta) for each theta
+        trainable_weights = model.trainable_weights
+        grads = tf.gradients(output[:, 1], trainable_weights, grad_ys=dL_dOutput)
+        #grads = Lop(output[:, 1], wrt=trainable_weights, eval_points=dL_dOutput)
+        return grads
+    return result, custom_grad
+
+
 class Response(Model):
     '''
     Extends the Keras Model class to support sampling from the Treatment
@@ -208,26 +224,59 @@ class Response(Model):
                 warnings.warn("Unbiased gradient only implemented for mean square error loss. It is unnecessary for\
                               logistic losses and currently not implemented for absolute error losses.")
 
+    def train_step(self, data):
+
+        x, y_true = data
+        with tf.GradientTape() as tape:
+            y_pred = self(x, training=True)  # Forward pass
+            # Compute the loss value
+            # (the loss function is configured in `compile()`)
+            loss = self.compiled_loss(y_true, y_pred, regularization_losses=self.losses)
+        trainable_vars = self.trainable_variables
+        if self.unbiased_gradient:
+            grads = unbiased_mse_loss_and_gradients(
+                self,  y_true, y_pred, self.batch_size, self.n_samples)
+        else:
+            grads = tape.gradient(loss, trainable_vars)
+        self.optimizer.apply_gradients(zip(grads,  trainable_vars))
+        self.compiled_metrics.update_state(y_true, y_pred)
+        # Return a dict mapping metric names to current value
+        return {m.name: m.result() for m in self.metrics}
+
     def compile(self, optimizer, loss, metrics=None, loss_weights=None, sample_weight_mode=None,
                 unbiased_gradient=False, n_samples=1, batch_size=None):
+        # super(Response, self).compile(optimizer=optimizer, loss=loss, loss_weights=loss_weights,
+        #                               sample_weight_mode=sample_weight_mode)
 
         self.unbiased_gradient = unbiased_gradient
-        if unbiased_gradient:
-            if loss in ["MSE", "mse", "mean_squared_error"]:
-                if batch_size is None:
-                    raise ValueError(
-                        "Must supply a batch_size argument if using unbiased gradients. Currently batch_size is None.")
+        self.n_samples = n_samples
+        if loss in ["MSE", "mse", "mean_squared_error"]:
+            metrics = [Metrics.MeanSquaredError(name="mse")]
+        # if unbiased_gradient:
+        #     if loss in ["MSE", "mse", "mean_squared_error"]:
+        #         if batch_size is None:
+        #             raise ValueError(
+        #                 "Must supply a batch_size argument if using unbiased gradients. Currently batch_size is None.")
+        #         self._train_step(data)
 
-                def unbiased_loss(y_true, y_pred):
-                    return unbiased_mse_loss(y_true, y_pred, batch_size, n_samples)
+        #         # def unbiased_loss(y_true, y_pred):
+        #         #     return "mse", unbiased_mse_loss_and_gradients(
+        #         #         self, optimizer, y_true, y_pred, batch_size, n_samples=1)
+        #         # def unbiased_loss_grad_opt(y_true, y_pred):
+        #         #     return unbiased_mse_loss_and_gradients(self, optimizer, y_true, y_pred, batch_size, n_samples=1)
+        #         #     # return unbiased_mse_loss_and_gradients(self, y_true, y_pred, batch_size, n_samples)
+        #         # super(Response, self).compile(optimizer=optimizer, loss=loss, loss_weights=loss_weights,
+        #         #                               sample_weight_mode=sample_weight_mode)
 
-                loss = unbiased_loss
-
-                # replace_gradients_mse(self, optimizer, batch_size=batch_size, n_samples=n_samples)
-            else:
-                warnings.warn("Unbiased gradient only implemented for mean square error loss. It is unnecessary for\
-                              logistic losses and currently not implemented for absolute error losses.")
-        super(Response, self).compile(optimizer=optimizer, loss=loss, loss_weights=loss_weights,
+        #         # unbiased_mse_gradients(self, y_true, y_pred, batch_size, n_samples=1)
+        #         # replace_gradients_mse(self, optimizer, batch_size=batch_size, n_samples=n_samples)
+        #     else:
+        #         warnings.warn("Unbiased gradient only implemented for mean square error loss. It is unnecessary for\
+        #                       logistic losses and currently not implemented for absolute error losses.")
+        super(Response, self).compile(optimizer=optimizer,
+                                      loss=loss,
+                                      loss_weights=loss_weights,
+                                      metrics=metrics,
                                       sample_weight_mode=sample_weight_mode)
 
     def fit(self, x=None, y=None, batch_size=512, epochs=1, verbose=1, callbacks=None,
@@ -242,6 +291,7 @@ class Response(Model):
             The remainder of the arguments correspond to the Keras definitions.
         '''
         batch_size = numpy.minimum(y.shape[0], batch_size)
+        self.batch_size = batch_size
         if seed is None:
             seed = numpy.random.randint(0, 1e6)
         if samples_per_batch is None:
@@ -261,19 +311,10 @@ class Response(Model):
         super(Response, self).fit(generator,
                                   steps_per_epoch=steps_per_epoch,
                                   epochs=epochs, verbose=verbose,
-                                  callbacks=callbacks, validation_data=validation_data,
-                                  class_weight=class_weight, initial_epoch=initial_epoch)
-
-    def fit_generator(self, **kwargs):
-        '''
-        We use override fit_generator to support sampling from the treatment model during training.
-
-        If you need this functionality, you'll need to build a generator that samples from the
-        treatment and performs whatever transformations you're performing. Please submit a pull
-        request if you implement this.
-        '''
-        raise NotImplementedError("We use override fit_generator to support sampling from the\
-                                   treatment model during training.")
+                                  # callbacks=callbacks,
+                                  validation_data=validation_data,
+                                  class_weight=class_weight,
+                                  initial_epoch=initial_epoch)
 
     def expected_representation(self, x, z, n_samples=100, batch_size=None, seed=None):
         inputs = [z, x]

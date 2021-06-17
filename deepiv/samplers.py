@@ -37,7 +37,8 @@ def random_multinomial(logits, seed=None):
         rng = RandomStreams(seed=seed)
         return rng.multinomial(n=1, pvals=logits, ndim=None, dtype=_FLOATX)
     elif K.backend() == "tensorflow":
-        samples_multi = tf.compat.v1.multinomial(logits=K.log(logits), num_samples=1)
+        samples_multi = tf.random.categorical(logits=K.log(logits), num_samples=1)
+        #samples_multi = tf.compat.v1.multinomial(logits=K.log(logits), num_samples=1)
         # smples_multi = tfp.distributions.Multinomial(total_count=1,logits=K.log(logits)).sample(1)
         sample_squeeze = tf.squeeze(samples_multi)
         return tf.one_hot(sample_squeeze, int(logits.shape[1]))

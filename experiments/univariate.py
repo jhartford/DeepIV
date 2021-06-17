@@ -34,13 +34,13 @@ args = parser.parse_args()
 n = args.n
 dropout_rate = min(1000./(1000. + n), 0.5)
 epochs = int(1500000./float(n))  # heuristic to select number of epochs
-# epochs = 300  # 300
+epochs = 30  # 300
 batch_size = 100
 images = False
 
 
 def datafunction(n, s, images=images,  test=False, ypcor=0.5, ynoise=1.):
-    return data_generator.demand(n=n, seed=s, ypcor=ypcor, ynoise=ynoise, use_images=images, test=test)
+    return data_generator.demand_univariate(n=n, seed=s, ypcor=ypcor, ynoise=ynoise, use_images=images, test=test)
 
 
 # g_true is the ture function, t is the treatment (price in the paper)
@@ -115,7 +115,7 @@ if not response_history:
 else:
     response_history = response_history.history
 
-response_fn = "./experiments/results/response_history_N{}_cor{}Dict".format(args.n, args.ypcor)
+response_fn = "./experiments/results/response_history_univariate_N{}_cor{}Dict".format(args.n, args.ypcor)
 
 response_fn = response_fn+"_unbiased" if args.unbiased else response_fn
 response_fn = response_fn+"_S{}".format(args.samples_per_batch) if args.samples_per_batch > 2 else response_fn
@@ -131,6 +131,7 @@ print("total training time of sample size: {} is {}".format(args.n, end-start))
 
 results_fn = args.results_fn
 if args.results_fn:
+    results_fn += "_univariate"
     results_fn = args.results_fn + "_N{}_P{}".format(args.n, args.ypcor)
     results_fn = results_fn+"_unbiased" if args.unbiased else results_fn
     results_fn = results_fn+"_S{}".format(args.samples_per_batch) if args.samples_per_batch > 2 else results_fn
