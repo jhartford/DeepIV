@@ -10,10 +10,10 @@ with open('HISTORY.rst') as history_file:
     history = history_file.read()
 
 requirements = [
-    "keras==2.0.6",
-    "tensorflow",
-    "sklearn", # required for comparing to linear
-    "h5py" # required for saving models
+    "keras==2.3.1",
+    "tensorflow==2.5",
+    "sklearn",  # required for comparing to linear
+    "h5py"  # required for saving models
 ]
 
 optimal_packages = {
@@ -26,10 +26,10 @@ test_requirements = [
 
 setup(
     name='deepiv',
-    version='0.1.0',
+    version='0.1.2',
     description="A package for counterfactual prediction using deep instrument variable methods",
     long_description=readme + '\n\n' + history,
-    author="Jason Hartford",
+    author="Jason Hartford, Xingrui Wang",
     author_email='jasonhar@cs.ubc.ca',
     url='https://github.com/jhartford/deepiv',
     packages=[
@@ -55,6 +55,7 @@ setup(
         'Programming Language :: Python :: 3.3',
         'Programming Language :: Python :: 3.4',
         'Programming Language :: Python :: 3.5',
+        'Programming Language :: Python :: 3.7',
     ],
     test_suite='tests',
     tests_require=test_requirements
